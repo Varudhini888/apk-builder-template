@@ -1,0 +1,48 @@
+name: Build APK
+
+on:
+  repository_dispatch:
+    types: [build-apk]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Decode and Inject HTML App Payload
+        env:
+          APP_ID: ${{ github.event.client_payload.app_id }}
+          APP_NAME: ${{ github.event.client_payload.app_name }}
+          HTML_PAYLOAD: ${{ github.event.client_payload.html_payload }}
+        run: |
+          echo "Preparing Cordova/Capacitor project..."
+          npx -y @capacitor/cli create my-app "$APP_ID" --web-dir www --template none
+          cd my-app
+          
+          # Decode Base64 HTML payload into www/index.html
+          echo "$HTML_PAYLOAD" | base64 --decode > www/index.html
+          
+          # Update app config
+          npx cap update android
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: my-app/android/app/build/outputs/apk/debug/app-debug.apk
