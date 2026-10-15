@@ -2,7 +2,7 @@ name: Build APK
 
 on:
   repository_dispatch:
-    types: [build-apk]
+    types: [build-apk-chunk]
 
 jobs:
   build:
@@ -22,20 +22,46 @@ jobs:
         with:
           node-version: 18
 
-      - name: Decode and Inject HTML App Payload
+      - name: Append Chunk Payload
+        env:
+          BUILD_ID: ${{ github.event.client_payload.build_id }}
+          CHUNK_INDEX: ${{ github.event.client_payload.chunk_index }}
+          TOTAL_CHUNKS: ${{ github.event.client_payload.total_chunks }}
+          CHUNK_PAYLOAD: ${{ github.event.client_payload.chunk_payload }}
+        run: |
+          mkdir -p chunks
+          echo "$CHUNK_PAYLOAD" > "chunks/chunk_$CHUNK_INDEX.txt"
+          
+          # Check if all chunks have arrived
+          CURRENT_COUNT=$(ls chunks/chunk_*.txt | wc -l)
+          echo "Received chunk $((CHUNK_INDEX + 1)) of $TOTAL_CHUNKS"
+
+      - name: Assemble and Build APK
         env:
           APP_ID: ${{ github.event.client_payload.app_id }}
           APP_NAME: ${{ github.event.client_payload.app_name }}
-          HTML_PAYLOAD: ${{ github.event.client_payload.html_payload }}
+          TOTAL_CHUNKS: ${{ github.event.client_payload.total_chunks }}
         run: |
-          echo "Preparing Cordova/Capacitor project..."
+          # Wait until all chunks are present
+          for i in {1..30}; do
+            CURRENT_COUNT=$(ls chunks/chunk_*.txt 2>/dev/null | wc -l)
+            if [ "$CURRENT_COUNT" -eq "$TOTAL_CHUNKS" ]; then
+              break
+            fi
+            sleep 2
+          done
+
+          echo "Assembling HTML chunks..."
+          touch combined_payload.b64
+          for ((i=0; i<TOTAL_CHUNKS; i++)); do
+            cat "chunks/chunk_$i.txt" >> combined_payload.b64
+          done
+
           npx -y @capacitor/cli create my-app "$APP_ID" --web-dir www --template none
           cd my-app
           
-          # Decode Base64 HTML payload into www/index.html
-          echo "$HTML_PAYLOAD" | base64 --decode > www/index.html
+          base64 --decode ../combined_payload.b64 > www/index.html
           
-          # Update app config
           npx cap update android
           cd android
           chmod +x gradlew
