@@ -28,7 +28,7 @@ echo "${CHUNK_PAYLOAD}" > chunks/{BUILD_ID}/chunk_${CHUNK_INDEX}.txt
 ​- name: Assemble and Build APK
 env:
 APP_ID: ${{ github.event.client_payload.app_id }}
-TOTAL_CHUNKS: {{ github.event.client_payload.total_chunks }}
+TOTAL_CHUNks: {{ github.event.client_payload.total_chunks }}
 BUILD_ID: ${{ github.event.client_payload.build_id }}
 run: |
 BUILD_DIR=chunks/${BUILD_ID}
