@@ -1,74 +1,79 @@
 name: Build APK
-
-on:
-  repository_dispatch:
-    types: [build-apk-chunk]
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 18
-
-      - name: Append Chunk Payload
-        env:
-          BUILD_ID: ${{ github.event.client_payload.build_id }}
-          CHUNK_INDEX: ${{ github.event.client_payload.chunk_index }}
-          TOTAL_CHUNKS: ${{ github.event.client_payload.total_chunks }}
-          CHUNK_PAYLOAD: ${{ github.event.client_payload.chunk_payload }}
-        run: |
-          mkdir -p chunks
-          echo "$CHUNK_PAYLOAD" > "chunks/chunk_$CHUNK_INDEX.txt"
-          
-          # Check if all chunks have arrived
-          CURRENT_COUNT=$(ls chunks/chunk_*.txt | wc -l)
-          echo "Received chunk $((CHUNK_INDEX + 1)) of $TOTAL_CHUNKS"
-
-      - name: Assemble and Build APK
-        env:
-          APP_ID: ${{ github.event.client_payload.app_id }}
-          APP_NAME: ${{ github.event.client_payload.app_name }}
-          TOTAL_CHUNKS: ${{ github.event.client_payload.total_chunks }}
-        run: |
-          # Wait until all chunks are present
-          for i in {1..30}; do
-            CURRENT_COUNT=$(ls chunks/chunk_*.txt 2>/dev/null | wc -l)
-            if [ "$CURRENT_COUNT" -eq "$TOTAL_CHUNKS" ]; then
-              break
-            fi
-            sleep 2
-          done
-
-          echo "Assembling HTML chunks..."
-          touch combined_payload.b64
-          for ((i=0; i<TOTAL_CHUNKS; i++)); do
-            cat "chunks/chunk_$i.txt" >> combined_payload.b64
-          done
-
-          npx -y @capacitor/cli create my-app "$APP_ID" --web-dir www --template none
-          cd my-app
-          
-          base64 --decode ../combined_payload.b64 > www/index.html
-          
-          npx cap update android
-          cd android
-          chmod +x gradlew
-          ./gradlew assembleDebug
-
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-debug
-          path: my-app/android/app/build/outputs/apk/debug/app-debug.apk
+​on:
+repository_dispatch:
+types: [build-apk-chunk]
+​jobs:
+build:
+runs-on: ubuntu-latest
+steps:
+- name: Checkout Repository
+uses: actions/checkout@v4
+​- name: Set up JDK 17
+uses: actions/setup-java@v4
+with:
+distribution: 'temurin'
+java-version: '17'
+​- name: Set up Node.js
+uses: actions/setup-node@v4
+with:
+node-version: 18
+​- name: Store Chunk Payload
+env:
+BUILD_ID: ${{ github.event.client_payload.build_id }}
+CHUNK_INDEX: ${{ github.event.client_payload.chunk_index }}
+TOTAL_CHUNKS: ${{ github.event.client_payload.total_chunks }}
+CHUNK_PAYLOAD: ${{ github.event.client_payload.chunk_payload }}
+run: |
+# STREAMING_CHUNK:Storing incoming chunk payload securely...
+mkdir -p chunks/$BUILD_ID
+echo "$CHUNK_PAYLOAD" > "chunks/$BUILD_ID/chunk_$CHUNK_INDEX.txt"
+echo "Successfully stored chunk $((CHUNK_INDEX + 1)) of TOTAL_CHUNKS for buildBUILD_ID"
+​- name: Assemble Chunks and Build APK
+env:
+APP_ID: ${{ github.event.client_payload.app_id }}
+APP_NAME: ${{ github.event.client_payload.app_name }}
+TOTAL_CHUNKS: ${{ github.event.client_payload.total_chunks }}
+BUILD_ID: ${{ github.event.client_payload.build_id }}
+run: |
+# STREAMING_CHUNK:Waiting for all chunks to arrive...
+BUILD_DIR="chunks/$BUILD_ID"
+echo "Waiting for all TOTAL_CHUNKS chunks inBUILD_DIR..."
+​# Wait up to 60 seconds for all chunks to arrive
+for i in {1..30}; do
+CURRENT_COUNT=$(ls "$BUILD_DIR"/chunk_*.txt 2>/dev/null | wc -l)
+echo "Current received: $CURRENT_COUNT / $TOTAL_CHUNKS"
+if [ "$CURRENT_COUNT" -eq "$TOTAL_CHUNKS" ]; then
+echo "All chunks received!"
+break
+fi
+sleep 2
+done
+​# Final verification check
+CURRENT_COUNT=$(ls "$BUILD_DIR"/chunk_*.txt 2>/dev/null | wc -l)
+if [ "$CURRENT_COUNT" -ne "$TOTAL_CHUNKS" ]; then
+echo "Error: Timed out waiting for chunks. Got CURRENT_COUNT out ofTOTAL_CHUNKS."
+exit 1
+fi
+​# STREAMING_CHUNK:Assembling decoded HTML payload...
+echo "Assembling HTML chunks in exact order..."
+touch combined_payload.b64
+for ((i=0; i<TOTAL_CHUNKS; i++)); do
+cat "$BUILD_DIR/chunk_$i.txt" >> combined_payload.b64
+done
+​# STREAMING_CHUNK:Initializing Capacitor project...
+echo "Initializing Capacitor project..."
+npx -y @capacitor/cli create my-app "$APP_ID" --web-dir www --template none
+cd my-app
+​echo "Decoding index.html..."
+base64 --decode ../combined_payload.b64 > www/index.html
+​# STREAMING_CHUNK:Compiling Android APK...
+echo "Adding Android platform and compiling..."
+npx cap add android
+cd android
+chmod +x gradlew
+./gradlew assembleDebug
+​- name: Upload APK Artifact
+uses: actions/upload-artifact@v4
+with:
+name: app-debug
+path: my-app/android/app/build/outputs/apk/debug/app-debug.apk
